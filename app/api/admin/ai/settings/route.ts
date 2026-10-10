@@ -6,7 +6,11 @@ import type { UpdateAiSettingsInput } from "@/lib/contract";
 export async function GET(): Promise<NextResponse> {
   const admin = await requireAdmin();
   if (isResponse(admin)) return admin;
-  return NextResponse.json({ settings: await getAiSettings() });
+  try {
+    return NextResponse.json({ settings: await getAiSettings() });
+  } catch {
+    return jsonError("LOAD_FAILED", "Could not load the AI settings.", 500);
+  }
 }
 
 export async function PUT(req: Request): Promise<NextResponse> {

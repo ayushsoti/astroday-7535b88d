@@ -38,9 +38,16 @@ import {
 } from "@/components/ui/card";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 
-function describeError(error: unknown): string {
-  if (error instanceof RequestError) return error.message;
-  return "Something went wrong. Please try again.";
+interface LoadError {
+  message: string;
+  status?: number;
+}
+
+function describeError(error: unknown): LoadError {
+  if (error instanceof RequestError) {
+    return { message: error.message, status: error.status || undefined };
+  }
+  return { message: "Something went wrong. Please try again." };
 }
 
 interface FormState {
@@ -79,10 +86,11 @@ export default function AdminAiPage() {
   const [test, setTest] = useState<AiTestResult | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const [attempted, setAttempted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LoadError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadUsage = useCallback(async () => {
@@ -109,6 +117,7 @@ export default function AdminAiPage() {
       setError(describeError(err));
     } finally {
       setLoading(false);
+      setAttempted(true);
     }
     void loadUsage();
   }, [loadUsage]);
@@ -212,7 +221,7 @@ export default function AdminAiPage() {
     return Array.from(names);
   }, [models, form?.model, form?.fallbackModel]);
 
-  if (loading && !form) {
+  if (loading && !form && !attempted) {
     return (
       <div className="mx-auto w-full max-w-6xl px-4 py-8 md:px-8 md:py-10">
         <Skeleton className="h-8 w-52" />
@@ -232,13 +241,25 @@ export default function AdminAiPage() {
           role="alert"
           className="flex items-start gap-3 rounded-xl border border-verdict-opposes/40 bg-elevated px-4 py-3 text-sm"
         >
-          <AlertTriangle className="mt-0.5 h-4 w-4 text-verdict-opposes" aria-hidden="true" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-verdict-opposes" aria-hidden="true" />
           <div className="flex-1">
             <p className="font-medium text-verdict-opposes">Could not load AI settings</p>
-            <p className="mt-0.5 text-muted-foreground">{error ?? "Please try again."}</p>
+            <p className="mt-0.5 text-muted-foreground">
+              {error?.message ?? "Please try again."}
+            </p>
+            {error?.status ? (
+              <p className="mt-1 text-xs text-muted-foreground/70">
+                The server responded with status {error.status}.
+              </p>
+            ) : null}
           </div>
-          <Button variant="outline" size="sm" onClick={() => void load()}>
-            Retry
+          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            )}
+            <span className="ml-2">{loading ? "Retrying…" : "Retry"}</span>
           </Button>
         </div>
       </div>
@@ -294,7 +315,7 @@ export default function AdminAiPage() {
           className="mt-5 flex items-start gap-3 rounded-xl border border-verdict-opposes/40 bg-elevated px-4 py-3 text-sm"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 text-verdict-opposes" aria-hidden="true" />
-          <p className="flex-1 text-muted-foreground">{error}</p>
+          <p className="flex-1 text-muted-foreground">{error.message}</p>
         </div>
       ) : null}
 
