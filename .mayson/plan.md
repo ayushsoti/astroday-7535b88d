@@ -1,124 +1,231 @@
-# Astroday — Whole-Build Plan
+# ASTRODAY — Whole-Build Plan
 
 ## Context
 
-**What exists today.** The workspace is the in-house **Mayson Next.js 16 (App Router) + React 19 + TypeScript + Tailwind v4 + shadcn/ui** template. Only the starter shell is present: `app/page.tsx`, `app/layout.tsx`, `app/globals.css`, the full `components/ui/*` kit, `lib/utils.ts`, `hooks/use-mobile.ts`, `components.json` (aliases `@/components`, `@/lib`, `@/hooks`, `@/` → repo root). No database, no auth, no domain code yet.
+**What Astroday is.** A personal Vedic-astrology + life-strategy advisor. A *deterministic
+engine* turns a birth chart into auditable evidence (natal promise, nakshatra dispositor,
+transits, Vimshottari dasha, divisional charts), groups that evidence so the same chart fact
+is never double-counted, surfaces **conflicts instead of averaging them**, and hands the
+structured result to an LLM that writes **prose only**. Evidence fields (findings, conflict
+verdicts, knowledge statuses, convergence label) are computed by the engine and passed through
+**unchanged**; the LLM can never invent a degree, a date, or a yoga.
 
-**What the user brought.** Two uploaded documents:
-- `ASTRODAY_MAYSON_BUILD_SPEC.md` — the single source of truth: product definition, non-negotiable "constitution" (14 principles), data model, API contract, and every astrology algorithm with exact constants (ephemeris conventions, dignity tables, combustion orbs, Vimshottari conventions, Paths C/E/B, D9/D7, Ashtakavarga), the evidence/conflict/knowledge-status model, a **golden fixture** for Sahaj's chart with expected outputs, 22 acceptance tests, and a phased build plan.
-- `ASTRODAY_SESSION_HISTORY.md` — how the project got here (prior Python build, 763 tests, lost sandbox; decision to rebuild).
+**Source of truth.** `.uploaded_documents/ASTRODAY_MAYSON_BUILD_SPEC.md` (Parts A–T: product,
+principles, architecture, data model, API, every algorithm with its exact constants, the golden
+fixture, acceptance tests, LLM layer, UI, and known gaps). `.uploaded_documents/ASTRODAY_SESSION_HISTORY.md`
+supplies the decision register (D1–D18) and the lessons (run the code, don't trust reports;
+push durably; name gaps instead of faking them).
 
-**Environment mismatch (must be resolved before building).** The spec assumes the **mayson.dev no-code builder** plus a **separate Python FastAPI engine using `pyswisseph`**. This workspace is a real Next.js/TypeScript repo where the app must be previewed and published as one Next app. A Python sidecar cannot be previewed/published end-to-end here. Recommended adaptation: **port the Astro Engine to TypeScript inside this app**, keeping every constant, formula, verdict and golden fixture from the spec byte-for-byte in behaviour. See "Open decision" below — this is the gating question.
+**Decisions locked with the user this session:**
+1. **Engine lives inside this app, in TypeScript** (not a Python sidecar). Every rule and
+   constant from Parts G–K is ported, and it is **proven against the golden fixture (Part L)
+   before any screen is built**.
+2. **Two-sided product:** a customer app *and* an admin dashboard, with subscription tiers.
+3. **Admin-managed plans only** — no live payments. Admin sets free/paid per user; users see
+   their plan and can file an upgrade request.
 
-**Product in one line.** Astroday is a personal Vedic-astrology + life-strategy advisor: onboard a birth profile → engine computes a real chart profile → user asks a question (English/Hinglish) → app classifies it, computes evidence, builds a conflict report → an LLM writes *only the prose* from the engine JSON. It is not a horoscope generator.
+**What already exists in the workspace.** The in-house Mayson Next.js 16 starter: App Router,
+React 19, TypeScript strict, Tailwind v4 (CSS-first, `@import "tailwindcss"` in `app/globals.css`),
+shadcn/ui already installed (`components/ui/*`), `@/` → project root, `lib/utils.ts`, `hooks/`.
+Current `app/page.tsx` is the Mayson welcome placeholder and will be replaced by the Astroday
+landing page. Nothing astrology-related exists yet.
 
----
-
-## Architecture (adapted to this workspace)
-
-```
-app/ (Next.js App Router — UI + API routes + Server Actions)
-  onboarding · chat · today · chart · timeline · audit
-  api/customers · api/ask · api/chart/[id] · api/dasha/[id]
-  api/predictions · api/calibration-events
-        │  (handlers call the application service only)
-lib/app/ (application service: orchestration, NO astrology math)
-  loadProfile → classifyQuestion → callEngine → callLLM → persistTurn
-lib/astro/ (ASTRO ENGINE — pure, deterministic, server-only, unit-tested)
-  ephemeris · natal · primitives · dasha · varga · ashtakavarga
-  techniques/{pathC,pathE,pathB,d9,d7} · evidence · conflict
-  knowledge · query · registry · analyze · types · constants
-lib/llm/ (LLM boundary — imports NOTHING from lib/astro compute)
-  anthropic.ts · fallback.ts · systemPrompt.ts
-lib/db/ + db/schema.ts (Drizzle + libSQL, cloud ability)
-```
-
-**Boundary rules enforced in review:** API handlers call only `lib/app`; the LLM module receives a JSON payload and never imports engine modules; `supporting_finding_ids`, `uncertainty_notes`, `knowledge_status_summary`, `convergence_label` are computed from engine output and passed through unchanged — the LLM authors only `answer_text`.
-
-**Ephemeris strategy (Phase 0 gate).** Prefer a native Swiss-Ephemeris binding for exact parity with the spec (Lahiri `SIDM_LAHIRI`, `TRUE_NODE`) — `@swisseph/node`/`swisseph-v2` ship prebuilt Linux binaries. If the native module will not install in this sandbox, fall back to pure-JS **`astronomy-engine`** + a computed Lahiri ayanamsha + osculating ascending node (h = r × v). Whichever path is taken, it must pass the golden fixture (D1 within 0.02°, 6 PDF-anchored dasha boundaries to the day, D9/D7 exact) before any UI is built.
+**Why persistence + auth is required.** The app stores personal birth profiles, conversations,
+and admin plan state that must survive restarts and be isolated per user → the **cloud ability**
+(Drizzle + libSQL `file:local.db`, Server Actions / route handlers) with the bundled
+**auth-session** recipe (email/password). This replaces the in-memory data layer entirely.
 
 ---
 
-## Files to change / add
+## Architecture at a glance
 
-### Phase 0 — deps + engine spike (de-risk before UI)
-- `package.json` (add `astronomy-engine` and/or swisseph binding; `vitest` + `@vitest/...` dev; keep bun).
-- `lib/astro/constants.ts` — signs, 27 nakshatras + lords, sign lords, exalt/debil/own, natural friends/enemies, combustion orbs, house groups, planet-condition weights, domain→house, dasha years, event keys, provenance labels.
-- `lib/astro/types.ts` — `NatalChart`, `PlanetPosition`, `HouseLord`, `PlanetCondition`, `DashaPeriod`, `Finding`, `EvidenceBundle`, `ConflictReport`, `KnowledgeStatus`, `ConvergenceLabel`, `AnalysisResult`.
-- `lib/astro/ephemeris.ts` — UTC resolution + planetary longitudes/speeds, sidereal Lahiri, whole-sign ascendant, true node, Ketu = Rahu+180.
-- `lib/astro/natal.ts` — D1 chart, nakshatra/pada, whole-sign houses, house lords.
-- `tests/golden.spec.ts` — Sahaj fixture: D1 ±0.02°, retro flags, Punarvasu-2, house lords (3rd = **Mars**), planet conditions table, D9/D7 exact.
+```
+Browser ── Next.js 16 App Router ─────────────────────────────────────────────┐
+  (user app: Onboarding · Chat · Today · Chart · Timeline · Audit · Plan)     │
+  (admin app: Users · Plans · Upgrade requests · Stats)                       │
+        │  route handlers / server actions                                    │
+        ▼                                                                     │
+  app service layer (orchestration only — NO astrology math in routes)        │
+   1 load customer+birth · 2 classify question → AnalysisPlan · 3 run engine │
+   4 build LLM request · 5 call LLM → answer_text · 6 persist turn/facts     │
+        │                                        │                            │
+        ▼ (in-process, TypeScript)               ▼ (server-only)              │
+  lib/astro/*  engine (pure, deterministic)   lib/llm/* answer layer        │
+        │                                                                    │
+        ▼ libSQL (Drizzle): users, customers, chart_profiles, conversations, │
+          messages, stated_facts, ai_conclusions, engine_runs,               │
+          calibration_events, predictions, upgrade_requests                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
 
-### Phase 1 — classical primitives + Vimshottari
-- `lib/astro/primitives.ts` — dignity (Exalted→Debilitated→Own→natural-relation fallback), combustion orbs, house categories, condition score (−4…+3, direction, strength). Moolatrikona = "Own"; Rahu/Ketu = reject.
-- `lib/astro/dasha.ts` — Vimshottari MD/AD/PD with `Fraction` arithmetic, 365.2425-day year, cumulative floor at emission, touching half-open boundaries, re-anchoring, partial birth-MD, **last-child clip rule**, ±2–3 day caveat; `activeDasha(date)` + next 3 transitions.
-- `tests/dasha.spec.ts` — balance 10.348 y, MD table, the 6 PDF-anchored boundaries to the day, touching, clipping, active 2026-10-10 = Sa/Ju/Ke.
+**Boundary rules enforced in code review (spec Part D):**
+- `lib/llm/*` imports nothing from `lib/astro/*` computation modules — it receives a JSON payload only.
+- `supporting_finding_ids`, `uncertainty_notes`, `knowledge_status_summary`, `convergence_label`
+  are computed from engine output and passed to the client unchanged.
+- Route handlers call the app service, never engine internals directly.
+- Errors return clean JSON `{code, message, detail}` — never a traceback.
 
-### Phase 2 — techniques, evidence, conflict
-- `lib/astro/varga.ts` — D9/D7 uniform formula (exact); even-n → `NOT_AVAILABLE`.
-- `lib/astro/ashtakavarga.ts` — BAV/SAV tables (ported, not hand-typed) with `convention` param; invariant totals 48/49/39/54/56/52/39 = 337.
-- `lib/astro/techniques/pathC.ts`, `pathE.ts`, `pathB.ts` (+ `d9.ts`, `d7.ts`) — per spec J.1–J.4 incl. node-dispositor → NOT_TESTED/UNKNOWN, Path B never STRONG, Sade Sati qualifier only, Ketu direction UNKNOWN.
-- `lib/astro/evidence.ts` — `Finding`, `EvidenceBundle`, `independence_group` construction.
-- `lib/astro/conflict.ts` — group verdicts, net-read priority, event specificity (money SUPPORT ≠ debt_closure support).
-- `lib/astro/knowledge.ts` — 7 knowledge statuses + overrides; convergence label (K.6).
-- `lib/astro/registry.ts` + `lib/astro/analyze.ts` — technique registry with explicit outcomes (EXECUTED/NOT_IMPLEMENTED/…); orchestrator producing the analyze payload.
-- `tests/pathCE.spec.ts`, `tests/conflict.spec.ts`, `tests/transit.spec.ts`, `tests/ashtakavarga.spec.ts` — L.5 net reads, MONEY/FAMILY correlated, PROPERTY/VEHICLE/RELATIONSHIPS conflicted, node handling, Path B caps, isolation (two other charts).
+---
 
-### Phase 3 — persistence + auth (cloud ability)
-- Enable the **cloud** ability → `db/schema.ts` (Drizzle), `lib/db/*`, `local.db`, drizzle config, auth-session recipe.
-- Tables exactly as spec Part E: `users, customers, chart_profiles, conversations, messages, stated_facts, ai_conclusions, engine_runs, calibration_events, predictions`.
+## Key technical decisions & risks
 
-### Phase 4 — query understanding + app service
-- `lib/astro/query.ts` — Hinglish/English classifier → `question_category`, `domains`, `event_key` (Part O tables + keyword hints).
-- `lib/app/service.ts` — onboarding (birth → engine → profile), ask pipeline, dasha range, predictions/calibration.
-- `tests/query.spec.ts` — every O.3 routing row.
+- **Ephemeris.** The spec uses `pyswisseph` (Swiss Ephemeris). To reproduce the golden fixture
+  with the *same* library, use **`swisseph-wasm`** (Swiss Ephemeris C v2.10.x compiled to WASM,
+  zero runtime deps) — it exposes `set_sid_mode(SIDM_LAHIRI)`, `calc_ut`, `houses_ex`, `TRUE_NODE`.
+  **Fallback if WASM init misbehaves in the Node server runtime:** `astronomy-engine` (pure TS,
+  ~1 arcmin) for positions, with Lahiri ayanamsha applied and the true node computed from the
+  lunar orbit. Whichever wins, the golden fixture test is the gate. This is resolved in Phase 1,
+  before any UI work.
+- **Exact dasha arithmetic.** Spec requires exact rationals (`fractions.Fraction`) and a
+  cumulative-floor emission rule. Port with a small `Fraction` helper over `bigint` (no float
+  rounding, ever). Tests 6–7 in Part M prove it.
+- **Place resolution.** The Python build used `geonamescache` (~34k cities). We cannot ship that
+  here; bundle a **curated offline city index** (India-heavy + world majors) plus lat/lon/tz
+  override fields. **Never guess:** a bare ambiguous name returns `AMBIGUOUS_BIRTH_PLACE` with
+  candidates. Recorded as a known limitation.
+- **LLM key.** `ANTHROPIC_API_KEY` (server-only). When absent, a **deterministic fallback answer**
+  is returned, clearly labelled — never a fake success (Part M test 22).
+- **Timezone.** `Intl`/`Temporal`-style zone math from the resolved IANA zone → UTC; historical
+  offsets handled. No new heavy deps.
+- **WASM + Turbopack.** Load the WASM module in a server-only module and mark engine routes
+  `runtime = "nodejs"`. Verify early (Phase 1) that the WASM asset loads under `next build`/`next start`.
 
-### Phase 5 — LLM answer layer
-- `lib/llm/systemPrompt.ts` (Part P.1 verbatim, `{language}` filled), `anthropic.ts` (Messages API, key from env), `fallback.ts` (deterministic, clearly labelled), `lib/llm/payload.ts` (P.3 shape).
-- Missing key/failure → `502 ANSWER_GENERATION_UNAVAILABLE`, never a fabricated answer.
+---
 
-### Phase 6 — UI (App Router)
-- `app/layout.tsx` (dark/light via `next-themes`, bottom tab bar mobile / sidebar desktop), `app/globals.css` (keep Tailwind v4 `@import`).
-- `app/onboarding/page.tsx` — name/date/time/place + candidate-city picker + Advanced lat/lon/tz.
-- `app/chat/page.tsx` — messages, quick-prompt chips, verdict chips, convergence badge, collapsible "Why" panel, uncertainty line.
-- `app/chart/page.tsx` — D1, house lords, conditions, D9/D7, Ashtakavarga grid, limitations.
-- `app/timeline/page.tsx` — MD→AD→PD bars + today marker + next transitions.
-- `app/today/page.tsx` — active dasha, today's Moon, slow-planet transits, Sade Sati, daily plan.
-- `app/audit/page.tsx` — predictions table + outcome editor, calibration events, stated facts.
-- API routes under `app/api/**` (or Server Actions) matching Part F exactly.
-- `app/api/engine/selftest` (dev-only) to surface golden-fixture results in the running app.
+## Files to change / create
 
-### Phase 7 — polish + verify
-- Empty/loading(skeleton)/error/success states everywhere; ownership isolation; title/meta; run `verify`.
+### Data + auth (cloud ability — generated + edited)
+- `lib/db/schema.ts` — Drizzle schema: `users` (+ `role` admin|user, `plan` free|paid,
+  `preferredLanguage`), `customers`, `chart_profiles`, `conversations`, `messages`,
+  `stated_facts`, `ai_conclusions`, `engine_runs`, `calibration_events`, `predictions`,
+  `upgrade_requests` (id, userId, message, status pending|approved|declined, createdAt).
+- `lib/db/index.ts` — libSQL client (`file:local.db`) per cloud ability rules.
+- `drizzle.config.ts`, migration/seed scripts.
+- `lib/auth/*` — auth-session recipe (sign up, sign in, session cookie, `requireUser`, `requireAdmin`).
+- Seed: one **admin** account + a demo customer, so the dashboard is usable immediately.
+
+### Engine (pure, deterministic — `lib/astro/`)
+- `constants.ts` — signs, 27 nakshatras + lords, sign lords, dasha order/years (120), dignity
+  (exalted/debilitated/own), natural friends/enemies, combustion orbs, house categories,
+  domain→primary house, keyword seed, event-key ontology.
+- `fraction.ts` — exact rational helper (bigint numerator/denominator).
+- `ephemeris.ts` — WASM singleton; Lahiri sidereal; TRUE node; Ketu = (Rahu+180)%360; retro flag.
+- `place.ts` — offline city index, ambiguity handling, lat/lon/tz override, tz→UTC.
+- `natal.ts` — positions, sign/degree, nakshatra-pada + lord, whole-sign houses, house lords.
+- `primitives.ts` — H.2 dignity, H.3 combustion, H.5 condition score/direction/strength, H.4 categories.
+- `dasha.ts` — Vimshottari MD/AD/PD with exact fractions, cumulative floor, touching boundaries,
+  partial birth MD, last-child clip; `activeDasha(date)`, `dashaRange(from,to)`.
+- `varga.ts` — D9/D7 uniform formula; **even-n → NOT_AVAILABLE**; D9/D7 structure techniques.
+- `ashtakavarga.ts` — Bhinnashtakavarga + Sarvashtakavarga, `convention` param, 337 invariants.
+- `paths.ts` — Path C (natal promise), Path E (nakshatra dispositor), Path B (gochara transits:
+  Jupiter/Saturn/Rahu/Ketu from Moon, never STRONG, Ketu UNKNOWN, Sade Sati qualifier,
+  ingress→egress window via day-stepping + bisection).
+- `conflict.ts` — independence groups, K.3 conflict report (7 verdicts), K.4 event specificity,
+  K.5 knowledge status (7 values), K.6 convergence label.
+- `registry.ts` — technique registry + explicit outcome for every technique (EXECUTED /
+  NOT_IMPLEMENTED / NOT_APPLICABLE_TO_DOMAIN / … ) — nothing silently skipped.
+- `query.ts` — Part O classifier: question → category → domains + event keys (Hinglish keyword seed).
+- `onboard.ts` — birth → `{natal_json, dasha_json, limitations, status}`.
+- `analyze.ts` — orchestrator: `{active_dasha, timing_windows, transits, domains[], event_specificity,
+  convergence_label, uncertainty_notes, knowledge_status_summary, limitations}`.
+- `fixture.ts` — the Part L golden data (Sahaj: 1998-10-12 16:00, Haridwar, 29.95N/78.16E, Asia/Kolkata).
+- `__tests__/` (run with `bun test`) — **all 15 Part M engine tests**, incl. D1 within 0.02°,
+  Aquarius lagna / Punarvasu-2, 3rd lord = Mars, planet conditions = L.4, D9/D7 = L.6,
+  dasha balance 10.348y + day-precise boundaries, active 2026-10-10 = Sa/Ju/Ke,
+  C/E table = L.5 (money/family CORRELATED, property/vehicle/relationships CONFLICTED),
+  node dispositor → NOT_TESTED/UNKNOWN_NOT_TESTED, Path B never STRONG, Ashtakavarga = 337,
+  event specificity, reproducibility, and 2-customer isolation.
+
+### LLM answer layer (`lib/llm/`)
+- `system-prompt.ts` — Part P.1 verbatim (fill `{language}`).
+- `build-request.ts` — Part P.3 `LLMAnswerRequest` from engine output (no engine imports).
+- `answer.ts` — Anthropic call (server-only) + deterministic fallback labelled clearly;
+  P.2 answer formats; returns `answer_text` only.
+
+### App service + API (`lib/services/`, `app/api/`)
+- `services/onboard.ts`, `services/ask.ts` (full pipeline incl. StatedFact/AIConclusion/EngineRun
+  persistence), `services/chart.ts`, `services/audit.ts`, `services/admin.ts`.
+- Routes: `POST/GET /api/customers`, `GET /api/chart/[id]`, `POST /api/ask`,
+  `GET /api/dasha/[id]`, `POST /api/calibration-events`, `GET /api/predictions`,
+  `PATCH /api/predictions/[id]`, `POST /api/upgrade-requests`,
+  admin: `GET /api/admin/users`, `PATCH /api/admin/users/[id]`, `GET/PATCH /api/admin/upgrade-requests`.
+
+### UI (App Router, mobile-first, calm dark + light, indigo accent)
+- `app/layout.tsx`, `app/globals.css` — theme tokens (indigo accent, verdict colours), fonts.
+- `app/page.tsx` — **landing/marketing** with plans (Free / Pro) and CTA (replaces placeholder).
+- Auth: `app/(auth)/login`, `app/(auth)/signup`.
+- User app `app/(app)/…`: `onboarding`, `chat` (home), `today`, `chart`, `timeline`, `audit`, `account`.
+  Shared shell: bottom tab bar (mobile) / left sidebar (desktop).
+  Chat answer card: domain chips coloured by verdict (SUPPORT green · OPPOSES red · CONFLICTED
+  amber · CORRELATED grey-blue · UNVALIDATED/UNAVAILABLE grey), convergence badge, collapsible
+  "Why" evidence panel with knowledge-status tags, one muted uncertainty line.
+  Every screen has empty / loading (skeletons) / error (plain + retry) / success states,
+  accessible labels, focus states, reduced-motion.
+- Admin `app/admin/…`: dashboard, users (set plan/role), upgrade requests (approve/decline), stats.
+- Reuse shadcn components from `components/ui/*` (button, card, input, table, tabs, badge, dialog,
+  sheet, select, sonner, skeleton, tooltip, sidebar, etc.).
 
 ---
 
 ## Existing code to reuse
+- `components/ui/*` — the full shadcn set is already installed; do not re-install.
+- `lib/utils.ts` — `cn()` class helper.
+- `hooks/use-mobile.ts` — responsive shell (tab bar vs sidebar).
+- `app/globals.css` — keep the `@import "tailwindcss"` line; extend tokens (indigo accent, verdict colours).
+- `app/layout.tsx` — keep the `Google_Sans` font wiring; swap metadata to Astroday.
+- `next.config.ts` — already Turbopack (`turbopack.root`); leave as-is.
+- Cloud ability — its injected rules govern Drizzle/libSQL + the auth-session recipe (replaces
+  the in-memory data-layer guidance entirely).
 
-- `components/ui/*` — `button, card, badge, tabs, table, input, textarea, label, field, select, dialog, sheet, drawer, dropdown-menu, collapsible, accordion, separator, scroll-area, skeleton, sonner, tooltip, popover, calendar, progress, avatar, alert, empty, item, breadcrumb, sidebar, chart` (recharts) — cover nearly every screen.
-- `lib/utils.ts` (`cn`), `hooks/use-mobile.ts` (responsive tab bar vs sidebar).
-- `next-themes` (already a dependency) for the dark/light theme.
-- `sonner` for toasts; `zod` (already present) for API input validation.
-- `components.json` aliases and `app/globals.css` Tailwind v4 entrypoint — do not restructure.
+---
+
+## Build phases (each ends with its acceptance tests green before moving on)
+
+- **P0 — Foundation.** Enable cloud ability; Drizzle schema + `local.db`; auth (email/password);
+  seed admin + demo user; role/plan guards; landing page shell + auth pages.
+- **P1 — Engine core + golden fixture (the gate).** Ephemeris spike → natal → primitives →
+  dasha → varga → ashtakavarga. Run **Part M tests 1–15** with `bun test`. No UI until this is green.
+- **P2 — Evidence layer.** Paths C/E/B, registry, conflict model, event specificity, knowledge
+  status, convergence label, Part O classifier, `analyze` orchestrator. Extend tests for
+  L.5 verdicts and registry outcomes.
+- **P3 — Onboarding + Chart + Timeline.** `POST/GET /api/customers`, `GET /api/chart/[id]`,
+  `GET /api/dasha/[id]`; onboarding UI (ambiguity → candidate list); chart tables (D1, house lords,
+  conditions, D9/D7, Ashtakavarga, limitations); timeline bars + today marker + next transitions.
+- **P4 — Ask flow + LLM + memory.** `POST /api/ask` full pipeline; LLM answer layer with fallback;
+  StatedFact / AIConclusion capture; chat UI with evidence chips, convergence badge, "Why" panel.
+  Tests 16–22 (boundary, pass-through, stated_fact immutability, error hygiene, Hinglish routing, missing key).
+- **P5 — Today + Audit loop.** Today screen (active MD/AD/PD, Moon, slow transits, Sade Sati);
+  Audit screen (predictions + calibration events); seed the **L.8 legacy PDF predictions** as
+  `source=legacy_pdf, outcome=pending`.
+- **P6 — Admin + plans.** Admin dashboard: users list, set plan/role, upgrade requests approve/decline,
+  stats; user account screen shows plan + "request upgrade".
+- **P7 — Polish + publish.** Responsive/visual pass (screenshot 390×844 + desktop), a11y, then
+  `verify(full:true)` and publish.
 
 ---
 
 ## Verification
 
-- **Engine (each phase):** `bunx vitest run` — golden fixture D1 ±0.02°; Punarvasu-2; house lords (3rd = Mars); planet-condition table exact; D9/D7 exact; even-n → NOT_AVAILABLE; balance 10.348 y; 6 PDF dasha boundaries to the day; touching/clip rules; active dasha 2026-10-10 = Sa/Ju/Ke; Path C/E net reads = L.5; MONEY/FAMILY correlated; PROPERTY/VEHICLE/RELATIONSHIPS conflicted; node dispositor NOT_TESTED; Path B never STRONG; Ketu UNKNOWN; Ashtakavarga 337 invariant on 3 charts; event specificity; reproducibility; two-chart isolation.
-- **App:** `verify(full:true)` (starts preview + browser). Then exercise each flow from the rendered UI: onboard Sahaj → chart screen shows the fixture values → ask "kab shaadi hogi?" and "loan close kar du?" → verify domain chips/convergence/uncertainty lines and that stated facts don't change `natal_json`.
-- **API:** `curl` `POST /api/customers`, `POST /api/ask`, `GET /api/chart/:id`, `GET /api/dasha/:id`; confirm error bodies are `{code,message,detail}` with no tracebacks, and `POST /api/ask` returns `502 ANSWER_GENERATION_UNAVAILABLE` when no LLM key is set.
-- **Visual:** `ensure_preview` + screenshots at 390×844 (mobile) and desktop for each screen.
-- **Isolation test:** assert `lib/llm/*` has no import path to `lib/astro/*` compute modules.
+- **Engine:** `bun test` — all Part M engine tests 1–15 pass (golden fixture within tolerances:
+  D1 ±0.02°, D9/D7 exact, dasha day-precise boundaries, verdicts exact).
+- **App build + preview:** the `verify` tool once with `full:true` (starts preview + browser);
+  must pass before finishing.
+- **API flows (curl, from the rendered app):** `POST /api/customers` (Sahaj → 201 READY, Aquarius
+  lagna) · ambiguous place → 422 with candidates · `POST /api/ask` ("kab shaadi hogi?" → MARRIAGE,
+  relationships CONFLICTED, pass-through fields equal engine values) · `GET /api/chart/[id]` ·
+  `GET /api/dasha/[id]?from=&to=` · `PATCH /api/admin/users/[id]` (plan change) · upgrade request
+  round-trip · missing `ANTHROPIC_API_KEY` → labelled fallback, never fake success.
+- **Isolation:** two customers (Mumbai 1990-05-01; London 2001) differ from Sahaj; a user never
+  sees another's records; non-admin blocked from `/admin` and admin APIs.
+- **Visual:** screenshots at 390×844 and desktop; fix layout/spacing/contrast issues.
+- **Durability:** commit/push after each phase (lesson from the lost sandbox).
 
 ---
 
-## Open decisions (need the user)
-
-1. **Where the astrology math lives** — TypeScript engine inside this app (recommended, previewable/publishable) vs a separate Python service (matches the spec's wording but cannot run end-to-end here). *Asking now.*
-2. **Persistence & accounts** — cloud storage (Drizzle + libSQL) with a simple login, or a single-user local store for a first pass. (App stores personal data → cloud is the default.)
-3. **LLM key** — whether an Anthropic API key will be provided (else the deterministic fallback is used and clearly labelled).
-4. **Scope of the first delivery** — full 6-screen app in one pass, or engine + onboarding + chat + chart first, then Today/Timeline/Audit.
-
-## Known gaps carried from the spec (must NOT be faked)
-D10/D4 and other even-n vargas → NOT_AVAILABLE; Sookshma → NOT_TESTED; Vedha/Sodhya → not implemented; Ashtakavarga not evidence-wired; fast-planet gochara display-only; degree aspects not implemented; yogas not computed; Path I not built; Ketu houses contested; Moolatrikona not implemented; historical-observation registry empty (populate only from user-confirmed calibration events).
+## Out of scope / known gaps (do NOT build or fake — spec Part S)
+D10/D4 and all even-n vargas → `NOT_AVAILABLE`; Sookshma → `NOT_TESTED`; Vedha/Sodhya and
+Ashtakavarga→transit strength not wired (Path B stays below STRONG); fast-planet gochara =
+display-only; aspects/graha drishti not implemented (Path C/E are aspect-free); yogas not claimed;
+Path I not built (use the K.6 label); Moolatrikona reported as "Own"; historical-observation
+registry starts empty (populated only from user-confirmed calibration events). **No live payments**
+(admin-managed plans only). Place resolution uses a curated index, not the full geonames dataset.
