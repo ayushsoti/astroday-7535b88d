@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   ArrowLeft,
+  Bot,
   LayoutDashboard,
   LogOut,
   MessageCircle,
@@ -16,6 +17,7 @@ const ADMIN_NAV = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/upgrade-requests", label: "Upgrade requests", icon: Sparkles },
+  { href: "/admin/ai", label: "AI console", icon: Bot },
 ] as const;
 
 /** Clears the signed session (same effect as POST /api/auth/logout) and returns to sign-in. */

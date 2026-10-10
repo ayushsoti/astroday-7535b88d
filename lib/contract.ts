@@ -146,6 +146,70 @@ export interface ApiError {
   detail?: unknown;
 }
 
+/* ------------------------------------------------------------ ai console */
+
+export type AiProvider = "anthropic" | "ollama" | "openai-compatible";
+
+export interface PublicAiSettings {
+  provider: AiProvider;
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+  apiKeyHint: string;
+  fallbackModel: string;
+  maxTokens: number;
+  temperature: number;
+  timeoutMs: number;
+  enabled: boolean;
+  systemPromptOverride: string;
+  updatedAt: string;
+  updatedBy: string | null;
+  origin: "database" | "environment";
+}
+
+export interface UpdateAiSettingsInput {
+  provider?: AiProvider;
+  baseUrl?: string;
+  model?: string;
+  /** Omit to keep the stored key; pass an empty string to clear it. */
+  apiKey?: string;
+  fallbackModel?: string;
+  maxTokens?: number;
+  temperature?: number;
+  timeoutMs?: number;
+  enabled?: boolean;
+  systemPromptOverride?: string;
+}
+
+export interface AiTestResult {
+  ok: boolean;
+  message: string;
+  latencyMs: number;
+  model: string;
+  provider: AiProvider;
+  sample?: string;
+}
+
+export interface AiUsageEntry {
+  id: string;
+  provider: string;
+  model: string;
+  source: "llm" | "fallback";
+  ok: boolean;
+  latencyMs: number;
+  detail: string | null;
+  createdAt: string;
+}
+
+export interface AiUsageSummary {
+  total: number;
+  llm: number;
+  fallback: number;
+  successRate: number;
+  avgLatencyMs: number;
+  recent: AiUsageEntry[];
+}
+
 /* -------------------------------------------------------------- endpoints */
 
 export const API = {
@@ -169,4 +233,8 @@ export const API = {
   adminUpgradeRequests: "/api/admin/upgrade-requests",
   adminUpgradeRequest: (id: string) => `/api/admin/upgrade-requests/${id}`,
   adminStats: "/api/admin/stats",
+  adminAiSettings: "/api/admin/ai/settings",
+  adminAiTest: "/api/admin/ai/test",
+  adminAiModels: "/api/admin/ai/models",
+  adminAiUsage: "/api/admin/ai/usage",
 } as const;

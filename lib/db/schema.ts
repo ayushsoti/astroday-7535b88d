@@ -106,6 +106,33 @@ export const predictions = sqliteTable("predictions", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const aiSettings = sqliteTable("ai_settings", {
+  id: text("id").primaryKey(),
+  provider: text("provider", { enum: ["anthropic", "ollama", "openai-compatible"] }).notNull().default("ollama"),
+  baseUrl: text("base_url").notNull().default("https://ollama.com"),
+  model: text("model").notNull().default("gpt-oss:120b"),
+  apiKey: text("api_key").notNull().default(""),
+  fallbackModel: text("fallback_model").notNull().default(""),
+  maxTokens: integer("max_tokens").notNull().default(1800),
+  temperature: real("temperature").notNull().default(0.6),
+  timeoutMs: integer("timeout_ms").notNull().default(60000),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  systemPromptOverride: text("system_prompt_override").notNull().default(""),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedBy: text("updated_by"),
+});
+
+export const aiUsageLog = sqliteTable("ai_usage_log", {
+  id: text("id").primaryKey(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  source: text("source", { enum: ["llm", "fallback"] }).notNull(),
+  ok: integer("ok", { mode: "boolean" }).notNull().default(true),
+  latencyMs: integer("latency_ms").notNull().default(0),
+  detail: text("detail"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const upgradeRequests = sqliteTable("upgrade_requests", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),

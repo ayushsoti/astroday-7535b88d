@@ -1,4 +1,6 @@
 import { systemPrompt, type LlmAnswerRequest } from "./build-request";
+import { buildChatRequest, parseChatResponse } from "./provider";
+import { logAiUsage, resolveSettings, type ResolvedSettings } from "../services/ai-settings";
 
 export interface AnswerResult {
   answerText: string;
@@ -6,60 +8,72 @@ export interface AnswerResult {
 }
 
 /**
- * Provider resolution.
+ * The advisor's language model.
  *
- * Priority:
- *   1. Ollama Cloud (OLLAMA_API_KEY) — hosted models, no local server required.
- *      Uses Ollama's Anthropic-compatible /v1/messages endpoint (Bearer auth).
- *   2. Anthropic (ANTHROPIC_API_KEY) — the original direct Claude endpoint.
- *   3. Deterministic fallback — clearly labelled, engine-only, never a fake success.
- *
- * Both hosted providers accept the same request/response shape, so the parsing
- * below is shared. Ollama returns extra `thinking` blocks; we keep only `text`.
+ * Configuration lives in the admin AI console (persisted in `ai_settings`) and
+ * falls back to environment variables when the console has never been saved.
+ * Three provider shapes are supported through lib/llm/provider.ts. If the model is
+ * disabled, unconfigured, or unreachable, we return a clearly-labelled deterministic
+ * answer built only from engine values — never a fake success.
  */
-interface Provider {
-  url: string;
-  headers: Record<string, string>;
-  model: string;
+
+/** Fill the {language} placeholder in a custom prompt, or use the built-in one. */
+function resolveSystemPrompt(language: "english" | "hinglish", override: string): string {
+  const lang =
+    language === "hinglish" ? "Hinglish (Roman-script Hindi mixed with English)" : "English";
+  if (override.trim().length > 0) {
+    const filled = override.replace(/\{language\}/g, lang);
+    return `${filled}\n\nReply in ${lang}; Hinglish is fine when the user writes Hinglish.`;
+  }
+  return systemPrompt(language);
 }
 
-const DEFAULT_OLLAMA_BASE_URL = "https://ollama.com";
-const DEFAULT_OLLAMA_MODEL = "gpt-oss:120b";
-const ANTHROPIC_MODEL = "claude-sonnet-4-5";
-const REQUEST_TIMEOUT_MS = 60000;
+interface CallOutcome {
+  ok: boolean;
+  text: string;
+  latencyMs: number;
+  detail: string;
+}
 
-function resolveProvider(): Provider | null {
-  const ollamaKey = process.env.OLLAMA_API_KEY;
-  if (ollamaKey) {
-    const base = (process.env.OLLAMA_BASE_URL ?? DEFAULT_OLLAMA_BASE_URL).replace(/\/+$/, "");
-    return {
-      url: `${base}/v1/messages`,
-      headers: {
-        authorization: `Bearer ${ollamaKey}`,
-        "anthropic-version": "2023-06-01",
-      },
-      model: process.env.OLLAMA_MODEL ?? DEFAULT_OLLAMA_MODEL,
-    };
+async function callModel(
+  cfg: ResolvedSettings,
+  model: string,
+  system: string,
+  userContent: string,
+): Promise<CallOutcome> {
+  const started = Date.now();
+  try {
+    const request = buildChatRequest(cfg, model, system, userContent);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), cfg.timeoutMs);
+    const res = await fetch(request.url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...request.headers },
+      body: JSON.stringify(request.body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const latencyMs = Date.now() - started;
+    if (!res.ok) return { ok: false, text: "", latencyMs, detail: `upstream ${res.status}` };
+    const data = await res.json();
+    const text = parseChatResponse(cfg.provider, data);
+    if (!text) return { ok: false, text: "", latencyMs, detail: "empty model response" };
+    return { ok: true, text, latencyMs, detail: "" };
+  } catch (err) {
+    const latencyMs = Date.now() - started;
+    const detail =
+      err instanceof Error && err.name === "AbortError"
+        ? "model timeout"
+        : err instanceof Error
+          ? err.message
+          : "request failed";
+    return { ok: false, text: "", latencyMs, detail };
   }
-
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (anthropicKey) {
-    return {
-      url: "https://api.anthropic.com/v1/messages",
-      headers: {
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-      },
-      model: ANTHROPIC_MODEL,
-    };
-  }
-
-  return null;
 }
 
 /**
- * Deterministic fallback: no API key configured, or the call failed.
- * It is clearly labelled and built only from engine-computed values — never a fake success.
+ * Deterministic fallback: no usable model, or the call failed.
+ * Clearly labelled and built only from engine-computed values — never a fake success.
  */
 export function fallbackAnswer(req: LlmAnswerRequest, reason: string): AnswerResult {
   const lines: string[] = [];
@@ -111,37 +125,55 @@ export function fallbackAnswer(req: LlmAnswerRequest, reason: string): AnswerRes
 }
 
 export async function answerQuestion(req: LlmAnswerRequest): Promise<AnswerResult> {
-  const provider = resolveProvider();
-  if (!provider) return fallbackAnswer(req, "no language-model API key configured");
+  const cfg = await resolveSettings();
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    const res = await fetch(provider.url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...provider.headers,
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        max_tokens: 1800,
-        system: systemPrompt(req.language),
-        messages: [{ role: "user", content: JSON.stringify(req) }],
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return fallbackAnswer(req, `upstream ${res.status}`);
-    const data = (await res.json()) as { content?: { type: string; text?: string }[] };
-    const text = (data.content ?? [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text ?? "")
-      .join("")
-      .trim();
-    if (!text) return fallbackAnswer(req, "empty model response");
-    return { answerText: text, answerSource: "llm" };
-  } catch (err) {
-    return fallbackAnswer(req, err instanceof Error ? err.message : "request failed");
+  if (!cfg.enabled) {
+    const reason = "the AI console is switched off";
+    await logAiUsage({ provider: cfg.provider, model: cfg.model, source: "fallback", ok: false, latencyMs: 0, detail: reason });
+    return fallbackAnswer(req, reason);
   }
+
+  if (!cfg.apiKey) {
+    const reason = "no language-model API key configured";
+    await logAiUsage({ provider: cfg.provider, model: cfg.model, source: "fallback", ok: false, latencyMs: 0, detail: reason });
+    return fallbackAnswer(req, reason);
+  }
+
+  const system = resolveSystemPrompt(req.language, cfg.systemPromptOverride);
+  const userContent = JSON.stringify(req);
+
+  let outcome = await callModel(cfg, cfg.model, system, userContent);
+  let usedModel = cfg.model;
+
+  // Retry once on the configured backup model before giving up.
+  if (!outcome.ok && cfg.fallbackModel && cfg.fallbackModel !== cfg.model) {
+    const retry = await callModel(cfg, cfg.fallbackModel, system, userContent);
+    if (retry.ok) {
+      outcome = retry;
+      usedModel = cfg.fallbackModel;
+    }
+  }
+
+  if (!outcome.ok) {
+    await logAiUsage({
+      provider: cfg.provider,
+      model: cfg.model,
+      source: "fallback",
+      ok: false,
+      latencyMs: outcome.latencyMs,
+      detail: outcome.detail,
+    });
+    return fallbackAnswer(req, outcome.detail);
+  }
+
+  await logAiUsage({
+    provider: cfg.provider,
+    model: usedModel,
+    source: "llm",
+    ok: true,
+    latencyMs: outcome.latencyMs,
+    detail: usedModel === cfg.model ? undefined : `served by backup model ${usedModel}`,
+  });
+
+  return { answerText: outcome.text, answerSource: "llm" };
 }
