@@ -76,6 +76,71 @@ export function AnswerCard({ message, answerSource, analysis }: AnswerCardProps)
         )}
       </div>
 
+      {analysis?.guidance && (
+        <div className="mt-4 space-y-3 rounded-xl border border-border bg-elevated/60 p-3.5">
+          <section aria-label="Why this is happening">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-foreground/80">
+              Why this is happening
+            </h3>
+            <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-muted-foreground">
+              {analysis.guidance.why.map((c) => (
+                <li key={c.step}>
+                  <span className="font-medium text-foreground/90">{c.step}: </span>
+                  {c.basis}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section aria-label="How long">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-foreground/80">
+              How long
+            </h3>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {analysis.guidance.duration.headline} <span className="opacity-80">({analysis.guidance.duration.caveat})</span>
+            </p>
+          </section>
+
+          <section aria-label="What to do">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-foreground/80">
+              What to do
+            </h3>
+            <div className="mt-2 space-y-2.5">
+              {analysis.guidance.domainActions.map((da) => (
+                <div key={da.domain}>
+                  <p className="text-xs font-medium capitalize text-foreground/90">{da.domain}</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+                    {da.steps.map((s) => (
+                      <li key={s}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              {analysis.guidance.actions.map((a) => (
+                <div key={a.planet}>
+                  <p className="text-xs font-medium text-foreground/90">
+                    {a.planet} <span className="font-normal text-muted-foreground">— {a.theme}</span>
+                  </p>
+                  <ul className="mt-1 list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+                    {a.daily.map((s) => (
+                      <li key={s}>{s}</li>
+                    ))}
+                    {a.traditional.map((s) => (
+                      <li key={s}>
+                        <span className="text-foreground/70">Traditional: </span>
+                        {s}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground/80">{a.caution}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground/80">{analysis.guidance.note}</p>
+          </section>
+        </div>
+      )}
+
       <Collapsible open={open} onOpenChange={setOpen} className="mt-4 border-t border-border pt-3">
         <CollapsibleTrigger
           aria-label="Why this answer"

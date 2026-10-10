@@ -240,6 +240,35 @@ export interface TransitInfo {
   window: { start: string; end: string } | null;
 }
 
+/* ---------------------------------------------- P. guidance (why/long/do) */
+
+export interface GuidanceCause {
+  step: string;
+  basis: string;
+}
+
+export interface GuidanceAction {
+  planet: string;
+  theme: string;
+  daily: string[];
+  traditional: string[];
+  caution: string;
+}
+
+export interface GuidanceDomainAction {
+  domain: string;
+  house: number;
+  steps: string[];
+}
+
+export interface Guidance {
+  why: GuidanceCause[];
+  duration: { headline: string; window: { start: string; end: string }; caveat: string };
+  actions: GuidanceAction[];
+  domainActions: GuidanceDomainAction[];
+  note: string;
+}
+
 export interface AnalyzeResponse {
   engineVersion: string;
   calculationMetadata: {
@@ -269,4 +298,5 @@ export interface AnalyzeResponse {
   supportingFindingIds: string[];
   limitations: string[];
   techniqueRegistry: { techniqueId: string; outcome: string }[];
+  guidance: Guidance;
 }

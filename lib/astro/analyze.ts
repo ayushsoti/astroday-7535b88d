@@ -13,6 +13,7 @@ import {
 } from "./paths";
 import { buildConflictReport, convergenceLabel, eventSpecificityOf, knowledgeStatusSummary } from "./conflict";
 import { techniqueRegistryReport } from "./registry";
+import { buildGuidance } from "./guidance";
 import { classify } from "./query";
 import type { AnalyzeRequest, AnalyzeResponse, ConflictReport, Finding } from "./types";
 
@@ -124,6 +125,7 @@ export function analyze(req: AnalyzeRequest): AnalyzeResponse {
     supportingFindingIds: allFindings.filter((f) => f.result === "SUPPORTS").map((f) => f.findingId),
     limitations: [...LIMITATIONS],
     techniqueRegistry: techniqueRegistryReport(domains, executed),
+    guidance: buildGuidance({ activeDasha, transits, conflictReports, timingWindows, query }),
   };
 }
 

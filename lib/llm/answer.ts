@@ -76,6 +76,33 @@ export function fallbackAnswer(req: LlmAnswerRequest, reason: string): AnswerRes
       lines.push(`  • [${f.technique}] ${f.result}${f.strength ? ` (${f.strength})` : ""} — ${f.explanation}`);
     }
   }
+
+  // Why / how long / what to do — the same structure the live model is required to follow.
+  const g = req.guidance;
+  if (g) {
+    lines.push("");
+    lines.push("WHY THIS IS HAPPENING");
+    for (const c of g.why) lines.push(`  • ${c.step}: ${c.basis}`);
+
+    lines.push("");
+    lines.push("HOW LONG");
+    lines.push(`  • ${g.duration.headline} (${g.duration.caveat})`);
+
+    lines.push("");
+    lines.push("WHAT TO DO");
+    for (const da of g.domainActions) {
+      lines.push(`  ${da.domain} (house ${da.house}):`);
+      for (const s of da.steps) lines.push(`    - ${s}`);
+    }
+    for (const a of g.actions) {
+      lines.push(`  ${a.planet} (${a.theme}):`);
+      for (const s of a.daily) lines.push(`    - ${s}`);
+      for (const s of a.traditional) lines.push(`    - (traditional) ${s}`);
+      lines.push(`    - (caution) ${a.caution}`);
+    }
+    lines.push("");
+    lines.push(g.note);
+  }
   if (req.uncertainty_notes.length > 0) {
     lines.push("");
     lines.push(`Uncertainty: ${req.uncertainty_notes[0]}`);
@@ -98,7 +125,7 @@ export async function answerQuestion(req: LlmAnswerRequest): Promise<AnswerResul
       },
       body: JSON.stringify({
         model: provider.model,
-        max_tokens: 1400,
+        max_tokens: 1800,
         system: systemPrompt(req.language),
         messages: [{ role: "user", content: JSON.stringify(req) }],
       }),
