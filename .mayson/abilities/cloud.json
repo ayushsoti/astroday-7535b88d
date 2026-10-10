@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "name": "cloud",
+  "state": "on",
+  "constants": {
+    "database": "coll-1d5300817a304537a17e612f998c8397",
+    "hostname": "coll-1d5300817a304537a17e612f998c8397-mayson.turso.io",
+    "mode": "turso"
+  },
+  "enabled_at": "2026-10-10T18:14:35Z",
+  "enabled_by_run": "23c628b9-4afd-4b79-9ef3-b0d0745212df",
+  "history": [
+    {
+      "event": "enabled",
+      "run_id": "23c628b9-4afd-4b79-9ef3-b0d0745212df",
+      "at": "2026-10-10T18:14:35Z"
+    }
+  ]
+}
