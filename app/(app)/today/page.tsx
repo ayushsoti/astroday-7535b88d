@@ -28,11 +28,6 @@ interface TransitPayload {
   transits: TransitInfo[];
 }
 
-/** Transit positions are exposed through a read-only snapshot endpoint. */
-function transitsUrl(customerId: string, asOf: string): string {
-  return `/api/transits/${customerId}?asOf=${asOf}`;
-}
-
 function errorMessage(err: unknown): string {
   if (err instanceof RequestError) return err.message;
   return err instanceof Error ? err.message : "Something went wrong.";
@@ -110,7 +105,7 @@ export default function TodayPage() {
 
     // The snapshot is supplementary: a missing endpoint must not break the page.
     try {
-      const payload = await fetchJson<TransitPayload>(transitsUrl(customer.id, today));
+      const payload = await fetchJson<TransitPayload>(`${API.transits(customer.id)}?asOf=${today}`);
       setTransits(payload.transits ?? []);
     } catch {
       setTransits([]);

@@ -154,6 +154,7 @@ export const API = {
   customers: "/api/customers",
   chart: (id: string) => `/api/chart/${id}`,
   dasha: (id: string) => `/api/dasha/${id}`,
+  transits: (id: string) => `/api/transits/${id}`,
   ask: "/api/ask",
   conversations: (customerId: string) => `/api/conversations?customerId=${customerId}`,
   messages: (conversationId: string) => `/api/messages?conversationId=${conversationId}`,

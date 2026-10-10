@@ -1,5 +1,5 @@
 import { getCustomerRow } from "./customers";
-import type { AnalyzeResponse, NatalChart } from "../astro/types";
+import type { AnalyzeResponse, NatalChart, TransitInfo } from "../astro/types";
 import type { Customer, PublicUser } from "../contract";
 import { toCustomer } from "./customers";
 
@@ -28,4 +28,18 @@ export async function getDasha(user: PublicUser, customerId: string, asOf: strin
   const moonLon = natal.positions.find((p) => p.body === "Moon")!.longitude;
   const active = activeDashaOn(moonLon, row.birthDate, asOf);
   return { customer: toCustomer(row), dasha: { ...active, detailed: dasha.detailed } };
+}
+
+export interface TransitsPayload {
+  customer: Customer;
+  transits: TransitInfo[];
+}
+
+/** Slow/fast graha snapshot for a date, computed from the stored natal chart. */
+export async function getTransits(user: PublicUser, customerId: string, asOf: string): Promise<TransitsPayload | null> {
+  const row = await getCustomerRow(user, customerId);
+  if (!row) return null;
+  const natal = JSON.parse(row.natalJson) as NatalChart;
+  const { computeTransits } = await import("../astro/paths");
+  return { customer: toCustomer(row), transits: computeTransits(natal, asOf) };
 }
