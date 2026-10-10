@@ -5,7 +5,57 @@ export interface AnswerResult {
   answerSource: "llm" | "fallback";
 }
 
-const MODEL = "claude-sonnet-4-5";
+/**
+ * Provider resolution.
+ *
+ * Priority:
+ *   1. Ollama Cloud (OLLAMA_API_KEY) — hosted models, no local server required.
+ *      Uses Ollama's Anthropic-compatible /v1/messages endpoint (Bearer auth).
+ *   2. Anthropic (ANTHROPIC_API_KEY) — the original direct Claude endpoint.
+ *   3. Deterministic fallback — clearly labelled, engine-only, never a fake success.
+ *
+ * Both hosted providers accept the same request/response shape, so the parsing
+ * below is shared. Ollama returns extra `thinking` blocks; we keep only `text`.
+ */
+interface Provider {
+  url: string;
+  headers: Record<string, string>;
+  model: string;
+}
+
+const DEFAULT_OLLAMA_BASE_URL = "https://ollama.com";
+const DEFAULT_OLLAMA_MODEL = "gpt-oss:120b";
+const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const REQUEST_TIMEOUT_MS = 60000;
+
+function resolveProvider(): Provider | null {
+  const ollamaKey = process.env.OLLAMA_API_KEY;
+  if (ollamaKey) {
+    const base = (process.env.OLLAMA_BASE_URL ?? DEFAULT_OLLAMA_BASE_URL).replace(/\/+$/, "");
+    return {
+      url: `${base}/v1/messages`,
+      headers: {
+        authorization: `Bearer ${ollamaKey}`,
+        "anthropic-version": "2023-06-01",
+      },
+      model: process.env.OLLAMA_MODEL ?? DEFAULT_OLLAMA_MODEL,
+    };
+  }
+
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    return {
+      url: "https://api.anthropic.com/v1/messages",
+      headers: {
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+      },
+      model: ANTHROPIC_MODEL,
+    };
+  }
+
+  return null;
+}
 
 /**
  * Deterministic fallback: no API key configured, or the call failed.
@@ -34,21 +84,20 @@ export function fallbackAnswer(req: LlmAnswerRequest, reason: string): AnswerRes
 }
 
 export async function answerQuestion(req: LlmAnswerRequest): Promise<AnswerResult> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return fallbackAnswer(req, "ANTHROPIC_API_KEY not set");
+  const provider = resolveProvider();
+  if (!provider) return fallbackAnswer(req, "no language-model API key configured");
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const res = await fetch(provider.url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
+        ...provider.headers,
       },
       body: JSON.stringify({
-        model: MODEL,
+        model: provider.model,
         max_tokens: 1400,
         system: systemPrompt(req.language),
         messages: [{ role: "user", content: JSON.stringify(req) }],
