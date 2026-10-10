@@ -20,7 +20,7 @@ export const HOUSE_SYSTEM = "WHOLE_SIGN" as const;
  * model reproduces the golden fixture's 23.84003 deg at Sahaj's birth instant.
  */
 export const AYANAMSHA_MODEL = {
-  a0: 23.857046,
+  a0: 23.854046,
   a1: 1.3965,
   a2: 0.0003086,
 } as const;
