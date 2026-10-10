@@ -49,6 +49,11 @@ export default function ChatPage() {
       const { messages: rows } = await fetchJson<{ messages: ChatMessage[] }>(API.messages(conversation.id));
       setConversationId(conversation.id);
       setMessages(rows);
+      const loadedAnalysis: Record<string, AskResponse["analysis"]> = {};
+      for (const row of rows) {
+        if (row.analysis) loadedAnalysis[row.id] = row.analysis;
+      }
+      setAnswerAnalysis((prev) => ({ ...prev, ...loadedAnalysis }));
       setLoadError(null);
       setLoadedFor(id);
     } catch (err) {

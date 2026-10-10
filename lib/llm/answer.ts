@@ -63,17 +63,17 @@ function resolveProvider(): Provider | null {
  */
 export function fallbackAnswer(req: LlmAnswerRequest, reason: string): AnswerResult {
   const lines: string[] = [];
-  lines.push(`[Offline answer — the language model is not configured (${reason}).]`);
+  lines.push(`> **Offline answer** — the language model is not configured (${reason}).`);
   lines.push("");
-  lines.push(`Category: ${req.question_category}. Convergence: ${req.convergence_label}. Event specificity: ${req.event_specificity}.`);
+  lines.push(`**Category:** ${req.question_category} · **Convergence:** ${req.convergence_label} · **Event specificity:** ${req.event_specificity}`);
   lines.push(
-    `Active period: ${req.active_dasha.md} / ${req.active_dasha.ad}${req.active_dasha.pd ? ` / ${req.active_dasha.pd}` : ""} (${req.active_dasha.adWindow[0]} to ${req.active_dasha.adWindow[1]}, ±2–3 days).`,
+    `**Active period:** ${req.active_dasha.md} / ${req.active_dasha.ad}${req.active_dasha.pd ? ` / ${req.active_dasha.pd}` : ""} (${req.active_dasha.adWindow[0]} to ${req.active_dasha.adWindow[1]}, ±2–3 days).`,
   );
   for (const d of req.domains) {
     lines.push("");
-    lines.push(`${d.domain} — net read: ${d.net_read}`);
+    lines.push(`### ${d.domain} — net read: ${d.net_read}`);
     for (const f of d.findings) {
-      lines.push(`  • [${f.technique}] ${f.result}${f.strength ? ` (${f.strength})` : ""} — ${f.explanation}`);
+      lines.push(`- **[${f.technique}]** ${f.result}${f.strength ? ` (${f.strength})` : ""} — ${f.explanation}`);
     }
   }
 
@@ -81,31 +81,31 @@ export function fallbackAnswer(req: LlmAnswerRequest, reason: string): AnswerRes
   const g = req.guidance;
   if (g) {
     lines.push("");
-    lines.push("WHY THIS IS HAPPENING");
-    for (const c of g.why) lines.push(`  • ${c.step}: ${c.basis}`);
+    lines.push("### Why this is happening");
+    for (const c of g.why) lines.push(`- **${c.step}:** ${c.basis}`);
 
     lines.push("");
-    lines.push("HOW LONG");
-    lines.push(`  • ${g.duration.headline} (${g.duration.caveat})`);
+    lines.push("### How long");
+    lines.push(`- ${g.duration.headline} (${g.duration.caveat})`);
 
     lines.push("");
-    lines.push("WHAT TO DO");
+    lines.push("### What to do");
     for (const da of g.domainActions) {
-      lines.push(`  ${da.domain} (house ${da.house}):`);
-      for (const s of da.steps) lines.push(`    - ${s}`);
+      lines.push(`- **${da.domain}** (house ${da.house})`);
+      for (const s of da.steps) lines.push(`  - ${s}`);
     }
     for (const a of g.actions) {
-      lines.push(`  ${a.planet} (${a.theme}):`);
-      for (const s of a.daily) lines.push(`    - ${s}`);
-      for (const s of a.traditional) lines.push(`    - (traditional) ${s}`);
-      lines.push(`    - (caution) ${a.caution}`);
+      lines.push(`- **${a.planet}** — ${a.theme}`);
+      for (const s of a.daily) lines.push(`  - ${s}`);
+      for (const s of a.traditional) lines.push(`  - _traditional:_ ${s}`);
+      lines.push(`  - _caution:_ ${a.caution}`);
     }
     lines.push("");
     lines.push(g.note);
   }
   if (req.uncertainty_notes.length > 0) {
     lines.push("");
-    lines.push(`Uncertainty: ${req.uncertainty_notes[0]}`);
+    lines.push(`> **Uncertainty:** ${req.uncertainty_notes[0]}`);
   }
   return { answerText: lines.join("\n"), answerSource: "fallback" };
 }

@@ -51,6 +51,8 @@ export interface ChatMessage {
   supportingFindingIds: string[];
   uncertaintyNotes: string[];
   knowledgeStatusSummary: Record<string, number>;
+  /** Present for assistant messages: the deterministic analysis behind the answer. */
+  analysis?: AnalyzeResponse;
   createdAt: string;
 }
 
